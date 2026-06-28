@@ -1,14 +1,19 @@
 rednet.open("right") -- Change to "left" or "back" to match your modem
 
--- Ask the user for the tunnel length
 term.clear()
 term.setCursorPos(1,1)
-print("--- 2x3 Tunnel Digging Program ---")
+print("--- Multi-Pair 2x3 Tunnel Program ---")
+
+-- 1. Ask for the specific partner turtle ID
+write("What is the ID of this turtle's Chunky Turtle? ")
+local targetLoaderID = tonumber(read())
+
+-- 2. Ask for the tunnel length
 write("How many blocks long should the tunnel be? ")
 local totalSlices = tonumber(read())
 
-if not totalSlices or totalSlices <= 0 then
-    print("Invalid number. Exiting.")
+if not targetLoaderID or not totalSlices or totalSlices <= 0 then
+    print("Invalid entries. Exiting.")
     return
 end
 
@@ -27,7 +32,6 @@ local function checkFuel()
     return true
 end
 
--- Safety Dig Check to prevent hitting the Chunky Turtle
 local function safeDig(dir)
     local success, data
     if dir == "forward" then success, data = turtle.inspect()
@@ -36,7 +40,7 @@ local function safeDig(dir)
 
     if success then
         if data.name == "computercraft:turtle" or data.name:find("turtle") then
-            print("Chunky Turtle detected! Waiting...")
+            print("Turtle detected! Waiting...")
             os.sleep(1)
             return false 
         end
@@ -69,38 +73,27 @@ local function movement(dir)
     end
 end
 
--- Clears one 2x3 slice (Goes up 2 blocks, steps right, goes down 2 blocks)
 local function clearOneSlice()
-    -- Dig up to block 2 and block 3 (height) on the left side
     movement("up")
     movement("up")
-    
-    -- Move to the right side of the tunnel
     turtle.turnRight()
     movement("forward")
     turtle.turnLeft()
-    
-    -- Dig down to the floor on the right side
     movement("down")
     movement("down")
-    
-    -- Return to the left-side floor position
     turtle.turnLeft()
     movement("forward")
     turtle.turnRight()
 end
 
 -- Main Loop
-print("Starting 2x3 tunnel for " .. totalSlices .. " blocks...")
+print("Mining paired to Loader ID: " .. targetLoaderID)
 for slice = 1, totalSlices do
-    -- Clear out the 2x3 grid directly in front of us
     clearOneSlice()
-    
-    -- Step forward into the next layer
     movement("forward")
     
-    -- Signal the Chunky Turtle to advance
-    rednet.broadcast("move_forward", "chunk_loader")
+    -- FIXED: Sends a private message ONLY to the designated Chunky Turtle ID
+    rednet.send(targetLoaderID, "move_forward", "chunk_loader")
 
     if slice % 10 == 0 then
         print("Progress: " .. slice .. " / " .. totalSlices)
