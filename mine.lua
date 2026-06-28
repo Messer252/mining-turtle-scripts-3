@@ -4,7 +4,6 @@ local width = 7
 local height = 7
 local totalSlices = 1500
 
--- Automatic fuel management system
 local function checkFuel()
     if turtle.getFuelLevel() < 100 then
         for slot = 1, 16 do
@@ -20,26 +19,46 @@ local function checkFuel()
     return true
 end
 
--- Aggressive movement that destroys gravel, sand, and mobs instantly
-local function movement(dir)
-    while not checkFuel() do
-        os.sleep(5)
+-- SAFETY CHECK: Prevents mining our chunk loader turtle
+local function safeDig(dir)
+    local success, data
+    if dir == "forward" then success, data = turtle.inspect()
+    elseif dir == "up" then success, data = turtle.inspectUp()
+    elseif dir == "down" then success, data = turtle.inspectDown() end
+
+    if success then
+        -- If the block in front is any type of turtle, DO NOT DIG IT
+        if data.name == "computercraft:turtle" or data.name:find("turtle") then
+            print("Warning: Chunky Turtle in the way! Waiting...")
+            os.sleep(1)
+            return false -- Did not dig
+        end
     end
+
+    -- If it's a regular block, dig it normally
+    if dir == "forward" then turtle.dig() turtle.attack()
+    elseif dir == "up" then turtle.digUp() turtle.attackUp()
+    elseif dir == "down" then turtle.digDown() turtle.attackDown() end
+    return true
+end
+
+local function movement(dir)
+    while not checkFuel() do os.sleep(5) end
 
     if dir == "forward" then
         while not turtle.forward() do
-            turtle.dig()
-            turtle.attack()
+            safeDig("forward")
+            os.sleep(0.1)
         end
     elseif dir == "up" then
         while not turtle.up() do
-            turtle.digUp()
-            turtle.attackUp()
+            safeDig("up")
+            os.sleep(0.1)
         end
     elseif dir == "down" then
         while not turtle.down() do
-            turtle.digDown()
-            turtle.attackDown()
+            safeDig("down")
+            os.sleep(0.1)
         end
     end
 end
@@ -51,15 +70,12 @@ local function digColumn(goingUp)
     end
 end
 
--- Clears a single 7x7 vertical grid without backtracking
+-- Clears a single 7x7 vertical grid
 local function clearOneSlice(startAtBottom)
     local goingUp = startAtBottom
-    
     for w = 1, width do
         digColumn(goingUp)
         goingUp = not goingUp 
-        
-        -- Move to the next vertical column row if we aren't done
         if w < width then
             if goingUp then
                 turtle.turnRight()
@@ -77,12 +93,11 @@ end
 
 -- Main Loop: Progress 1,500 slices deep
 local startAtBottom = true
-print("Starting 7x7 tunnel: 1,500 blocks deep...")
+print("Starting safe 7x7 tunnel...")
 
 for slice = 1, totalSlices do
     startAtBottom = clearOneSlice(startAtBottom)
     
-    -- Orient the turtle straight into the tunnel wall to step forward
     if not startAtBottom then
         turtle.turnLeft()
         turtle.turnLeft()
@@ -90,19 +105,16 @@ for slice = 1, totalSlices do
     
     movement("forward")
     
-    -- Ping the Chunky Turtle to step into the newly loaded chunk zone
+    -- Ping the Chunky Turtle to step forward
     rednet.broadcast("move_forward", "chunk_loader")
     
-    -- Re-orient the turtle back to face the next zigzag grid pattern
     if not startAtBottom then
         turtle.turnLeft()
         turtle.turnLeft()
     end
 
-    -- Status readout in terminal every 10 blocks
     if slice % 10 == 0 then
-        print("Progress: " .. slice .. " / " .. totalSlices .. " slices.")
+        print("Progress: " .. slice .. " / " .. totalSlices)
     end
 end
-
-print("Tunnel completely finished!")
+print("Tunnel complete!")
