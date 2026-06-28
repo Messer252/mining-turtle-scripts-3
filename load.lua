@@ -1,5 +1,5 @@
-rednet.open("right") -- Change to your modem side
-print("Chunk loader active. Waiting for signal...")
+rednet.open("right") -- Change to "left" or "back" to match your modem
+print("Chunk loader active. Safe-distance mode engaged...")
 
 local function checkFuel()
     if turtle.getFuelLevel() < 100 then
@@ -12,16 +12,25 @@ local function checkFuel()
     return true
 end
 
+local signalsReceived = 0
+
 while true do
     local id, message = rednet.receive("chunk_loader")
+    
     if message == "move_forward" then
-        -- Wait half a second to let the mining turtle finish its turns
-        os.sleep(0.5)
-
-        while not checkFuel() do os.sleep(5) end
+        signalsReceived = signalsReceived + 1
         
-        while not turtle.forward() do
-            turtle.dig() -- Clears gravel, but safeDig on the miner protects this guy
+        -- On the very first slice, the loader stays completely still.
+        -- Starting on the second slice, it follows exactly 1 block behind.
+        if signalsReceived > 1 then
+            while not checkFuel() do os.sleep(5) end
+            
+            while not turtle.forward() do
+                turtle.dig() -- Clears any falling gravel safely
+            end
+            print("Advanced 1 block. Keeping safe distance.")
+        else
+            print("Mining turtle started first layer. Holding position...")
         end
     end
 end
