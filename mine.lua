@@ -27,15 +27,13 @@ local function safeDig(dir)
     elseif dir == "down" then success, data = turtle.inspectDown() end
 
     if success then
-        -- If the block in front is any type of turtle, DO NOT DIG IT
         if data.name == "computercraft:turtle" or data.name:find("turtle") then
-            print("Warning: Chunky Turtle in the way! Waiting...")
+            print("Warning: Chunky Turtle detected! Waiting...")
             os.sleep(1)
-            return false -- Did not dig
+            return false 
         end
     end
 
-    -- If it's a regular block, dig it normally
     if dir == "forward" then turtle.dig() turtle.attack()
     elseif dir == "up" then turtle.digUp() turtle.attackUp()
     elseif dir == "down" then turtle.digDown() turtle.attackDown() end
@@ -63,14 +61,12 @@ local function movement(dir)
     end
 end
 
--- Digs one vertical column of the 7x7 grid
 local function digColumn(goingUp)
     for h = 1, height - 1 do
         movement(goingUp and "up" or "down")
     end
 end
 
--- Clears a single 7x7 vertical grid
 local function clearOneSlice(startAtBottom)
     local goingUp = startAtBottom
     for w = 1, width do
@@ -105,7 +101,7 @@ for slice = 1, totalSlices do
     
     movement("forward")
     
-    -- Ping the Chunky Turtle to step forward
+    -- Ping the Chunky Turtle that we safely left the previous slice
     rednet.broadcast("move_forward", "chunk_loader")
     
     if not startAtBottom then
