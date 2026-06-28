@@ -1,5 +1,5 @@
 -- Open wireless communication
-rednet.open("right") -- Change to "left" or "back" if needed
+rednet.open("left") -- Change to "left" or "back" if needed
 
 local tunnelLength = 1000
 
