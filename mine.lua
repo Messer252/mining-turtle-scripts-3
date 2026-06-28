@@ -1,63 +1,108 @@
--- Open wireless communication
-rednet.open("left") -- Change to "left" or "back" if needed
+rednet.open("right") -- Change to "left" or "back" to match your modem
 
-local tunnelLength = 1000
+local width = 7
+local height = 7
+local totalSlices = 1500
 
+-- Automatic fuel management system
 local function checkFuel()
-    -- If fuel is low, try to automatically refuel from inventory
-    if turtle.getFuelLevel() < 50 then
+    if turtle.getFuelLevel() < 100 then
         for slot = 1, 16 do
             turtle.select(slot)
             if turtle.refuel(1) then
-                print("Refueled! Current level: " .. turtle.getFuelLevel())
+                print("Refueled! Level: " .. turtle.getFuelLevel())
                 return true
             end
         end
-        -- If no fuel found, pause and warn user
-        print("OUT OF FUEL! Place coal in inventory.")
+        print("OUT OF FUEL! Place coal/charcoal in inventory.")
         return false
     end
     return true
 end
 
-local function digAndMove()
-    -- Check fuel level before moving
-    if not checkFuel() then
-        while turtle.getFuelLevel() < 50 do
-            os.sleep(5) -- Wait until user adds fuel
-            checkFuel()
+-- Aggressive movement that destroys gravel, sand, and mobs instantly
+local function movement(dir)
+    while not checkFuel() do
+        os.sleep(5)
+    end
+
+    if dir == "forward" then
+        while not turtle.forward() do
+            turtle.dig()
+            turtle.attack()
+        end
+    elseif dir == "up" then
+        while not turtle.up() do
+            turtle.digUp()
+            turtle.attackUp()
+        end
+    elseif dir == "down" then
+        while not turtle.down() do
+            turtle.digDown()
+            turtle.attackDown()
         end
     end
-
-    -- Clear the path ahead
-    while turtle.detect() do
-        turtle.dig()
-        os.sleep(0.4)
-    end
-    
-    -- Move forward
-    if turtle.forward() then
-        -- Tell the Chunky Turtle behind it to move forward
-        rednet.broadcast("move_forward", "chunk_loader")
-        return true
-    end
-    return false
 end
 
--- Start the 1000-block loop
-print("Starting 1,000 block tunnel...")
-for i = 1, tunnelLength do
-    -- Clear upper block for 2-high tunnel
-    while turtle.detectUp() do
-        turtle.digUp()
-        os.sleep(0.4)
-    end
-    
-    digAndMove()
-    
-    -- Status update every 50 blocks
-    if i % 50 == 0 then
-        print("Progress: " .. i .. " / " .. tunnelLength .. " blocks.")
+-- Digs one vertical column of the 7x7 grid
+local function digColumn(goingUp)
+    for h = 1, height - 1 do
+        movement(goingUp and "up" or "down")
     end
 end
-print("Tunnel complete!")
+
+-- Clears a single 7x7 vertical grid without backtracking
+local function clearOneSlice(startAtBottom)
+    local goingUp = startAtBottom
+    
+    for w = 1, width do
+        digColumn(goingUp)
+        goingUp = not goingUp 
+        
+        -- Move to the next vertical column row if we aren't done
+        if w < width then
+            if goingUp then
+                turtle.turnRight()
+                movement("forward")
+                turtle.turnLeft()
+            else
+                turtle.turnLeft()
+                movement("forward")
+                turtle.turnRight()
+            end
+        end
+    end
+    return goingUp
+end
+
+-- Main Loop: Progress 1,500 slices deep
+local startAtBottom = true
+print("Starting 7x7 tunnel: 1,500 blocks deep...")
+
+for slice = 1, totalSlices do
+    startAtBottom = clearOneSlice(startAtBottom)
+    
+    -- Orient the turtle straight into the tunnel wall to step forward
+    if not startAtBottom then
+        turtle.turnLeft()
+        turtle.turnLeft()
+    end
+    
+    movement("forward")
+    
+    -- Ping the Chunky Turtle to step into the newly loaded chunk zone
+    rednet.broadcast("move_forward", "chunk_loader")
+    
+    -- Re-orient the turtle back to face the next zigzag grid pattern
+    if not startAtBottom then
+        turtle.turnLeft()
+        turtle.turnLeft()
+    end
+
+    -- Status readout in terminal every 10 blocks
+    if slice % 10 == 0 then
+        print("Progress: " .. slice .. " / " .. totalSlices .. " slices.")
+    end
+end
+
+print("Tunnel completely finished!")
