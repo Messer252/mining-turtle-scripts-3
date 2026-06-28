@@ -20,13 +20,10 @@ while true do
     if message == "move_forward" then
         signalsReceived = signalsReceived + 1
         
-        -- On the very first slice, the loader stays completely still.
-        -- Starting on the second slice, it follows exactly 1 block behind.
         if signalsReceived > 1 then
             while not checkFuel() do os.sleep(5) end
-            
             while not turtle.forward() do
-                turtle.dig() -- Clears any falling gravel safely
+                turtle.dig() 
             end
             print("Advanced 1 block. Keeping safe distance.")
         else
