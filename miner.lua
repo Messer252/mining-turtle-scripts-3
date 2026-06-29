@@ -143,12 +143,16 @@ end
 -- ── Wait for START signal from controller ───────────────────
 print("Miner ID " .. myID .. " ready. Waiting for controller START...")
 
+local controllerID = nil   -- explicitly stored, used for the whole script's life
+
 while true do
     local senderID, msg = rednet.receive(PROTOCOL, 60)
     if msg and msg.cmd == "START" then
-        myCol      = msg.column
-        totalSlices = msg.total
+        controllerID = senderID
+        myCol         = msg.column
+        totalSlices   = msg.total
         print("Assigned column " .. myCol .. " | Length: " .. totalSlices)
+        print("Controller ID locked: " .. controllerID)
         break
     end
 end
@@ -159,8 +163,8 @@ for slice = 1, totalSlices do
     -- Mine the 8-tall column for this slice
     mineColumn()
 
-    -- Report this slice is done to the controller
-    rednet.send(senderID, {cmd = "SLICE_DONE", col = myCol, slice = slice}, PROTOCOL)
+    -- Report this slice is done to the controller (always the locked ID)
+    rednet.send(controllerID, {cmd = "SLICE_DONE", col = myCol, slice = slice}, PROTOCOL)
 
     if slice % 10 == 0 then
         print("Slice " .. slice .. " / " .. totalSlices .. " done.")
@@ -174,7 +178,7 @@ for slice = 1, totalSlices do
             if advMsg == nil then
                 print("[WARN] Timeout waiting for ADVANCE. Retrying...")
             end
-        until advMsg and advMsg.cmd == "ADVANCE"
+        until advMsg and advMsg.cmd == "ADVANCE" and advID == controllerID
 
         -- Move forward one block into the next slice
         move("forward")
