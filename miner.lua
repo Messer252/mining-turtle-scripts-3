@@ -178,7 +178,14 @@ for slice = 1, totalSlices do
             if advMsg == nil then
                 print("[WARN] Timeout waiting for ADVANCE. Retrying...")
             end
-        until advMsg and advMsg.cmd == "ADVANCE" and advID == controllerID
+            -- Discard any ADVANCE that isn't for the slice transition
+            -- we're currently sitting at. A stale/queued duplicate from
+            -- an earlier transition would otherwise be wrongly accepted
+            -- here, causing this miner to silently drift out of sync
+            -- with the controller and the other 7 miners.
+        until advMsg and advMsg.cmd == "ADVANCE"
+              and advMsg.forSlice == slice
+              and advID == controllerID
 
         -- Move forward one block into the next slice
         move("forward")
