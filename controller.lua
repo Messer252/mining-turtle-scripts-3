@@ -109,13 +109,17 @@ resetPending()
 
 while slicesDone < totalSlices do
 
-    -- Wait for all 8 miners to report slice completion
+    local currentSlice = slicesDone + 1  -- the slice we're waiting on right now
+
+    -- Wait for all 8 miners to report slice completion FOR THIS SLICE SPECIFICALLY
     local allDone = false
     while not allDone do
         local senderID, msg = rednet.receive(PROTOCOL_MINE, 300)
         if senderID == nil then
             print("[WARN] Timeout waiting for miner reports. Retrying...")
-        elseif msg and msg.cmd == "SLICE_DONE" and pendingMiners[senderID] then
+        elseif msg and msg.cmd == "SLICE_DONE"
+               and msg.slice == currentSlice
+               and pendingMiners[senderID] then
             pendingMiners[senderID] = nil
             -- Check if all miners are done
             allDone = true
@@ -123,6 +127,9 @@ while slicesDone < totalSlices do
                 if pendingMiners[id] then allDone = false; break end
             end
         end
+        -- Any SLICE_DONE for a slice that isn't currentSlice is silently
+        -- discarded here -- it's either a stale duplicate or arrived
+        -- out of order, and re-counting it would desync the tracker.
     end
 
     slicesDone = slicesDone + 1
@@ -131,7 +138,7 @@ while slicesDone < totalSlices do
     -- Advance miners to next slice (if there is one)
     if slicesDone < totalSlices then
         for _, id in ipairs(minerIDs) do
-            rednet.send(id, {cmd = "ADVANCE"}, PROTOCOL_MINE)
+            rednet.send(id, {cmd = "ADVANCE", forSlice = slicesDone}, PROTOCOL_MINE)
         end
     end
 
