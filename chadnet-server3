@@ -1,0 +1,215 @@
+-- =====================================
+-- Chad.Net v5 SERVER (REBUILT CLEAN)
+-- =====================================
+
+local PROTOCOL = "chadnet"
+
+-- modem open
+for _, side in ipairs({"left","right","top","bottom","front","back"}) do
+    if peripheral.isPresent(side) and peripheral.getType(side) == "modem" then
+        rednet.open(side)
+        break
+    end
+end
+
+-------------------------------------------------
+-- STATE
+-------------------------------------------------
+local users = {}        -- username registry
+local sessions = {}     -- id -> username
+local clients = {}      -- active clients
+local lastSeen = {}     -- heartbeat
+
+local bots = {}
+local ttt = {}
+
+-------------------------------------------------
+-- UTIL
+-------------------------------------------------
+local function send(id, msg)
+    rednet.send(id, msg, PROTOCOL)
+end
+
+local function broadcast(msg)
+    rednet.broadcast(msg, PROTOCOL)
+end
+
+-------------------------------------------------
+-- TIC TAC TOE
+-------------------------------------------------
+local wins = {
+    {1,2,3},{4,5,6},{7,8,9},
+    {1,4,7},{2,5,8},{3,6,9},
+    {1,5,9},{3,5,7}
+}
+
+local function checkWin(b, s)
+    for _, w in ipairs(wins) do
+        if b[w[1]]==s and b[w[2]]==s and b[w[3]]==s then
+            return true
+        end
+    end
+    return false
+end
+
+-------------------------------------------------
+-- STATUS UI
+-------------------------------------------------
+local function drawStatus()
+    term.clear()
+    term.setCursorPos(1,1)
+
+    local count = 0
+    for _ in pairs(clients) do count = count + 1 end
+
+    print("================================")
+    print(" Chad.Net v5 SERVER")
+    print(" Online Clients: "..count)
+    print("================================")
+end
+
+drawStatus()
+
+-------------------------------------------------
+-- MAIN LOOP
+-------------------------------------------------
+while true do
+    local id, msg = rednet.receive(PROTOCOL)
+    if type(msg) ~= "table" then goto continue end
+
+    -------------------------------------------------
+    -- PING
+    -------------------------------------------------
+    if msg.type == "ping" then
+        lastSeen[id] = os.clock()
+        send(id, {type="pong"})
+    end
+
+    -------------------------------------------------
+    -- LOGIN (USERNAME ONLY)
+    -------------------------------------------------
+    if msg.type == "login" then
+        local name = msg.user
+        if not name or name == "" then goto continue end
+
+        users[name] = true
+
+        sessions[id] = name
+        clients[id] = name
+        lastSeen[id] = os.clock()
+
+        send(id, {type="ok", text="Welcome "..name})
+        broadcast({type="system", text=name.." joined Chad.Net"})
+    end
+
+    -------------------------------------------------
+    -- CHAT
+    -------------------------------------------------
+    if msg.type == "chat" then
+        local user = sessions[id]
+        if not user then goto continue end
+
+        broadcast({type="chat", text="["..user.."]: "..msg.text})
+    end
+
+    -------------------------------------------------
+    -- DM
+    -------------------------------------------------
+    if msg.type == "dm" then
+        local from = sessions[id]
+        if not from then goto continue end
+
+        for cid, uname in pairs(sessions) do
+            if uname == from or uname == msg.to then
+                send(cid, {
+                    type="dm",
+                    text="(DM) "..from.." -> "..msg.to..": "..msg.text
+                })
+            end
+        end
+    end
+
+    -------------------------------------------------
+    -- BOT STATUS
+    -------------------------------------------------
+    if msg.type == "bot_status" then
+        bots[msg.id] = msg
+    end
+
+    -------------------------------------------------
+    -- BOT QUERY
+    -------------------------------------------------
+    if msg.type == "bot_query" then
+        local b = bots[msg.id]
+
+        if not b then
+            send(id, {type="bot", text="No data for bot "..msg.id})
+        else
+            send(id, {
+                type="bot",
+                text=string.format(
+                    "[BOT %s] Slice:%s Fuel:%s Inv:%s%% State:%s",
+                    msg.id, b.slice or 0, b.fuel or 0, b.inv or 0, b.state or "?"
+                )
+            })
+        end
+    end
+
+    -------------------------------------------------
+    -- TIC TAC TOE
+    -------------------------------------------------
+    if msg.type == "ttt_challenge" then
+        local p1 = sessions[id]
+        local p2 = msg.target
+
+        if not p1 or not p2 then goto continue end
+
+        ttt[p2] = {
+            p1 = p1,
+            p2 = p2,
+            board = {" "," "," "," "," "," "," "," "," "},
+            turn = p1,
+            active = true
+        }
+
+        broadcast({type="system", text=p1.." challenged "..p2})
+    end
+
+    if msg.type == "ttt_move" then
+        local player = sessions[id]
+        local game = ttt[player]
+
+        if not game or not game.active then goto continue end
+        if game.turn ~= player then goto continue end
+
+        local pos = msg.pos
+        if not pos or game.board[pos] ~= " " then goto continue end
+
+        local sym = (player == game.p1) and "X" or "O"
+        game.board[pos] = sym
+
+        if checkWin(game.board, sym) then
+            broadcast({type="ttt", text=player.." wins TicTacToe!"})
+            game.active = false
+            goto continue
+        end
+
+        game.turn = (game.turn == game.p1) and game.p2 or game.p1
+        send(id, {type="ttt", text="Turn: "..game.turn})
+    end
+
+    -------------------------------------------------
+    -- CLEANUP
+    -------------------------------------------------
+    for cid, t in pairs(lastSeen) do
+        if os.clock() - t > 15 then
+            lastSeen[cid] = nil
+            sessions[cid] = nil
+            clients[cid] = nil
+        end
+    end
+
+    drawStatus()
+
+    ::continue::
+end
