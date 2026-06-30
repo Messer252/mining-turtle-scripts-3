@@ -1,10 +1,10 @@
 -- =====================================
--- Chad.Net v4.1 SERVER (ALL FEATURES)
+-- Chad.Net v4.2 SERVER (FINAL)
 -- =====================================
 
 local PROTOCOL = "chadnet"
 
--- modem
+-- Open modem
 for _, side in ipairs({"left","right","top","bottom","front","back"}) do
     if peripheral.isPresent(side) and peripheral.getType(side) == "modem" then
         rednet.open(side)
@@ -13,17 +13,18 @@ for _, side in ipairs({"left","right","top","bottom","front","back"}) do
 end
 
 -------------------------------------------------
--- DATA STORES
+-- DATA
 -------------------------------------------------
-local users = {}        -- username -> {passhash}
+local users = {}        -- username -> passhash
 local sessions = {}     -- id -> username
-local messages = {}
+local clients = {}      -- id -> username (active)
+local lastSeen = {}     -- heartbeat tracking
 
-local bots = {}         -- mining turtle status
-local ttt = {}          -- tic tac toe games
+local bots = {}
+local ttt = {}
 
 -------------------------------------------------
--- SIMPLE HASH
+-- HASH
 -------------------------------------------------
 local function hash(str)
     local h = 0
@@ -60,13 +61,38 @@ local function checkWin(b, s)
 end
 
 -------------------------------------------------
+-- SERVER STATUS UI
+-------------------------------------------------
+local function drawStatus()
+    term.clear()
+    term.setCursorPos(1,1)
+
+    local count = 0
+    for _ in pairs(clients) do count = count + 1 end
+
+    print("===================================")
+    print(" Chad.Net SERVER v4.2")
+    print(" Connected Clients: "..count)
+    print(" Active Sessions: "..count)
+    print("===================================")
+end
+
+drawStatus()
+
+-------------------------------------------------
 -- MAIN LOOP
 -------------------------------------------------
-print("Chad.Net v4.1 Online")
-
 while true do
     local id, msg = rednet.receive(PROTOCOL)
     if type(msg) ~= "table" then goto continue end
+
+    -------------------------------------------------
+    -- PING / HEARTBEAT
+    -------------------------------------------------
+    if msg.type == "ping" then
+        lastSeen[id] = os.clock()
+        send(id, {type="pong"})
+    end
 
     -------------------------------------------------
     -- REGISTER
@@ -75,7 +101,7 @@ while true do
         if users[msg.user] then
             send(id, {type="error", text="User exists"})
         else
-            users[msg.user] = {passhash = hash(msg.pass)}
+            users[msg.user] = hash(msg.pass)
             send(id, {type="ok", text="Account created"})
         end
 
@@ -83,13 +109,15 @@ while true do
     -- LOGIN
     -------------------------------------------------
     elseif msg.type == "login" then
-        local u = users[msg.user]
-        if not u then
+        if not users[msg.user] then
             send(id, {type="error", text="No user"})
-        elseif u.passhash ~= hash(msg.pass) then
+        elseif users[msg.user] ~= hash(msg.pass) then
             send(id, {type="error", text="Wrong password"})
         else
             sessions[id] = msg.user
+            clients[id] = msg.user
+            lastSeen[id] = os.clock()
+
             send(id, {type="ok", text="Logged in as "..msg.user})
             broadcast({type="system", text=msg.user.." joined Chad.Net"})
         end
@@ -101,10 +129,7 @@ while true do
         local user = sessions[id]
         if not user then goto continue end
 
-        local line = "["..user.."]: "..msg.text
-        table.insert(messages, line)
-
-        broadcast({type="chat", text=line})
+        broadcast({type="chat", text="["..user.."]: "..msg.text})
 
     -------------------------------------------------
     -- DM
@@ -113,11 +138,9 @@ while true do
         local from = sessions[id]
         if not from then goto continue end
 
-        local line = "(DM) "..from.." -> "..msg.to..": "..msg.text
-
         for cid, uname in pairs(sessions) do
             if uname == from or uname == msg.to then
-                send(cid, {type="dm", text=line})
+                send(cid, {type="dm", text="(DM) "..from.." -> "..msg.to..": "..msg.text})
             end
         end
 
@@ -126,10 +149,10 @@ while true do
     -------------------------------------------------
     elseif msg.type == "bot_status" then
         bots[msg.id] = {
-            slice = msg.slice or 0,
-            fuel = msg.fuel or 0,
-            inv = msg.inv or 0,
-            state = msg.state or "unknown",
+            slice = msg.slice,
+            fuel = msg.fuel,
+            inv = msg.inv,
+            state = msg.state,
             last = os.clock()
         }
 
@@ -137,27 +160,22 @@ while true do
     -- BOT QUERY
     -------------------------------------------------
     elseif msg.type == "bot_query" then
-        local data = bots[msg.id]
+        local b = bots[msg.id]
 
-        if not data then
+        if not b then
             send(id, {type="bot", text="No data for bot "..msg.id})
         else
             send(id, {
                 type="bot",
                 text=string.format(
-                    "[BOT %s]\nSlice: %d\nFuel: %d\nInv: %d%%\nState: %s\nLast: %.0fs ago",
-                    msg.id,
-                    data.slice,
-                    data.fuel,
-                    data.inv,
-                    data.state,
-                    os.clock() - data.last
+                    "[BOT %s]\nSlice:%d Fuel:%d Inv:%d%% State:%s",
+                    msg.id, b.slice, b.fuel, b.inv, b.state
                 )
             })
         end
 
     -------------------------------------------------
-    -- TIC TAC TOE CHALLENGE
+    -- TIC TAC TOE
     -------------------------------------------------
     elseif msg.type == "ttt_challenge" then
         local p1 = sessions[id]
@@ -175,9 +193,6 @@ while true do
 
         broadcast({type="system", text=p1.." challenged "..p2.." to TicTacToe"})
 
-    -------------------------------------------------
-    -- TIC TAC TOE MOVE
-    -------------------------------------------------
     elseif msg.type == "ttt_move" then
         local player = sessions[id]
         local game = ttt[player]
@@ -198,9 +213,21 @@ while true do
         end
 
         game.turn = (game.turn == game.p1) and game.p2 or game.p1
-
         send(id, {type="ttt", text="Turn: "..game.turn})
     end
 
     ::continue::
+
+    -------------------------------------------------
+    -- CLEANUP DEAD CLIENTS
+    -------------------------------------------------
+    for cid, t in pairs(lastSeen) do
+        if os.clock() - t > 15 then
+            lastSeen[cid] = nil
+            sessions[cid] = nil
+            clients[cid] = nil
+        end
+    end
+
+    drawStatus()
 end
